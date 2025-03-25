@@ -10,25 +10,20 @@
   let userAudioBase64 = ""; 
   let audioContext;
 
-  // Variabel untuk rekaman mikrofon
   let isRecording = false;
   let micStream = null;
 
-  // Queue untuk audio yang diterima (hanya yang diterima dari websocket akan diputar)
   let receivedAudioQueue = [];
   let isPlayingReceived = false;
 
-  // Fungsi untuk menghasilkan ID unik bagi pesan
   function generateMessageId() {
     return Date.now().toString(36) + Math.random().toString(36).substr(2);
   }
 
-  // Fungsi pembantu: truncate string base64 untuk tampilan log
   function truncateBase64(str, maxLength = 50) {
     return str.length <= maxLength ? str : str.substring(0, maxLength) + '...';
   }
 
-  // Format tampilan data pesan
   function formatMessageData(data) {
     let formatted = { ...data };
     if (formatted.user_audio_chunk) {
@@ -40,7 +35,6 @@
     return formatted;
   }
 
-  // Fungsi untuk memutar audio PCM dari base64
   async function playPCMAudioFromBase64(base64Data, onEndedCallback = () => {}) {
     if (!audioContext) {
       try {
@@ -52,13 +46,11 @@
       }
     }
     try {
-      // Decode base64 ke binary
       const binary = atob(base64Data);
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) {
         bytes[i] = binary.charCodeAt(i);
       }
-      // Data dianggap raw PCM 16-bit
       const pcmData = new Int16Array(bytes.buffer);
       const audioBuffer = audioContext.createBuffer(1, pcmData.length, sampleRate);
       const channelData = audioBuffer.getChannelData(0);
@@ -77,7 +69,6 @@
     }
   }
 
-  // Queue management untuk audio yang diterima
   function enqueueReceivedAudio(base64Audio) {
     receivedAudioQueue.push(base64Audio);
     if (!isPlayingReceived) playNextReceived();
@@ -92,7 +83,6 @@
     playPCMAudioFromBase64(nextChunk, playNextReceived);
   }
 
-  // Fungsi untuk menghubungkan ke WebSocket
   function connectWebSocket() {
     try {
       socket = new WebSocket('ws://127.0.0.1:8000/ws');
@@ -115,7 +105,6 @@
           const data = JSON.parse(event.data);
           const messageId = generateMessageId();
 
-          // Jika menerima pesan ping, balas dengan pong (ikut event_id)
           if (data.type === 'ping' && data.ping_event && data.ping_event.event_id) {
             const pongMsg = { type: "pong", event_id: data.ping_event.event_id };
             sendMessage(pongMsg);
@@ -125,7 +114,6 @@
 
           messages = [...messages, { type: 'received', data, id: messageId }];
 
-          // Jika pesan berisi audio (asumsi PCM 16kHz dalam base64) dari websocket
           if (data.type === 'audio' && data.audio_event && data.audio_event.audio_base_64) {
             const base64Audio = data.audio_event.audio_base_64;
             enqueueReceivedAudio(base64Audio);
@@ -150,7 +138,6 @@
     }
   }
 
-  // Fungsi untuk mengirim pesan via WebSocket
   function sendMessage(message) {
     if (socket && socket.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify(message));
@@ -160,8 +147,6 @@
     }
   }
 
-  // Fungsi untuk memulai rekaman dari mikrofon.
-  // Setiap chunk raw PCM 16-bit dikonversi ke base64 dan langsung dikirim ke WebSocket.
   async function startRecording() {
     if (isRecording) return;
     try {
@@ -182,14 +167,12 @@
           const s = Math.max(-1, Math.min(1, inputData[i]));
           pcmData[i] = s < 0 ? s * 32768 : s * 32767;
         }
-        // Konversi raw PCM ke base64 (tanpa header)
         const uint8Array = new Uint8Array(pcmData.buffer);
         let binary = "";
         for (let i = 0; i < uint8Array.length; i++) {
           binary += String.fromCharCode(uint8Array[i]);
         }
         const base64PCM = btoa(binary);
-        // Kirim chunk ke server (data yang dikirim tidak akan diputar secara lokal)
         sendMessage({ user_audio_chunk: base64PCM });
         messages = [...messages, { type: 'system', text: 'Sent PCM audio chunk', id: generateMessageId() }];
       };
@@ -203,7 +186,6 @@
     }
   }
 
-  // Fungsi untuk menghentikan rekaman
   function stopRecording() {
     if (!isRecording) return;
     isRecording = false;
@@ -214,7 +196,6 @@
     messages = [...messages, { type: 'system', text: 'Microphone recording stopped', id: generateMessageId() }];
   }
 
-  // Fungsi untuk mengirim test ping (saat debugging)
   function sendTestPing() {
     const testPing = {
       type: "ping",
@@ -223,8 +204,6 @@
     sendMessage(testPing);
   }
 
-  // Fungsi untuk mengirim dan memutar test audio (sine wave 440Hz) sebagai PCM (output)
-  // Hanya untuk demonstrasi, chunk test audio yang di-*enqueue* hanya akan masuk ke receivedAudioQueue
   function playTestAudio() {
     const duration = 1; // dalam detik
     const frequency = 440;
@@ -240,7 +219,6 @@
       binary += String.fromCharCode(uint8Array[i]);
     }
     const base64 = btoa(binary);
-    // Masukkan ke queue penerimaan agar diputar
     enqueueReceivedAudio(base64);
     const testAudioMessage = {
       type: "audio",
@@ -250,7 +228,6 @@
     messages = [...messages, { type: 'received', data: testAudioMessage, id: generateMessageId() }];
   }
 
-  // Fungsi untuk meng-handle file upload audio
   async function handleFileUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
@@ -271,7 +248,6 @@
     }
   }
 
-  // Fungsi untuk mengonversi file audio ke PCM 16kHz menggunakan OfflineAudioContext
   async function convertAudioToPCM16(file) {
     if (!audioContext) {
       try {
@@ -316,7 +292,6 @@
     }
   }
 
-  // Fungsi untuk menutup koneksi WebSocket
   function closeConnection() {
     if (socket) {
       socket.close();
@@ -326,7 +301,6 @@
 
   onMount(() => {
     connectWebSocket();
-    // Resume AudioContext pada interaksi pertama (untuk mengatasi auto-play policy)
     document.addEventListener('click', function resumeAudioContext() {
       if (audioContext && audioContext.state === 'suspended') {
         audioContext.resume();
@@ -365,7 +339,6 @@
     </div>
   {/if}
   
-  <!-- Audio Input Section -->
   <div class="mt-4 p-3 border rounded bg-gray-100">
     <h3 class="text-md font-semibold mb-2">rekam dulu boss</h3>
     <div class="flex items-center">
@@ -385,10 +358,7 @@
     </div>
   </div>
   
-  <!-- Section untuk kirim audio manual -->
 
-  
-  <!-- Message Log -->
   <div class="border rounded-lg p-4 h-96 overflow-y-auto bg-gray-50">
     <h2 class="text-lg font-semibold mb-2">Message Log</h2>
     {#if messages.length === 0}
@@ -419,12 +389,12 @@
           {:else if message.data}
             {#if message.data.user_audio_chunk}
               <div class="text-blue-600">
-                🎤 PCM Audio sent (input)
+                 PCM Audio sent (input)
                 <pre class="text-xs bg-blue-50 p-1 rounded">{JSON.stringify(formatMessageData(message.data), null, 2)}</pre>
               </div>
             {:else if message.data.type === 'audio' && message.data.audio_event?.audio_base_64}
               <div class="flex items-center">
-                <span class="text-green-600 mr-2">🔊 PCM Audio received and played (output)</span>
+                <span class="text-green-600 mr-2"> PCM Audio received and played (output)</span>
                 <button class="text-xs bg-green-100 hover:bg-green-200 text-green-800 px-2 py-1 rounded" on:click={() => enqueueReceivedAudio(message.data.audio_event.audio_base_64)}>
                   Play Again
                 </button>
@@ -460,10 +430,10 @@
   
   function getMessageTitle(type) {
     switch (type) {
-      case 'sent': return '→ Sent';
-      case 'received': return '← Received';
-      case 'error': return '⚠ Error';
-      case 'system': return 'ℹ System';
+      case 'sent': return ' Sent';
+      case 'received': return ' Received';
+      case 'error': return ' Error';
+      case 'system': return ' System';
       default: return '';
     }
   }
